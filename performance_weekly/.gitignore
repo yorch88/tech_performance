@@ -1,0 +1,66 @@
+# ──────────────────────────────
+# 🧠 Python / FastAPI
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+.env
+.venv/
+env/
+venv/
+*.db
+*.bak
+
+# ──────────────────────────────
+# 🐍 Celery / Beat / Workers
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat-scheduler
+celerybeat.pid
+celerybeat.log
+celerybeat.*
+*.pid
+*.worker.log
+*.beat.log
+
+# ──────────────────────────────
+# 🧾 Reports y datos temporales
+/app/reports/*
+!/app/reports/.gitkeep
+/app/ftp_report_files/*
+!/app/ftp_report_files/.gitkeep
+/tmp/*
+*.csv
+*.xlsx
+
+# ──────────────────────────────
+# 🧰 Docker
+*.tar
+*.sock
+*.pid
+*.seed
+db_data/
+__docker_build__/
+*.cache
+
+# ──────────────────────────────
+# ⚙️ IDE / Editor
+.vscode/
+.idea/
+*.iml
+
+# ──────────────────────────────
+# 🧪 Tests / Coverage
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# ──────────────────────────────
+# 🧱 Bytecode & cache
+*.pyc
+*.pyo
+*.pyd
+__pycache__/

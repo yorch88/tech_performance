@@ -7,3 +7,6 @@ cellogs:
 
 logs:
 	 docker compose logs -f celery-worker
+
+bash:
+	docker compose exec api bash
