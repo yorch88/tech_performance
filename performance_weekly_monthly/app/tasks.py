@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from celery.utils.log import get_task_logger
 from .celery_app import celery_app
+from .perf_logic import run_performance_from_csv, write_txt_report
 import os
 import glob
 import re
@@ -21,8 +22,6 @@ def _period_key(path_str: str) -> tuple[int, str]:
         num = int(m.group(2))
         return (num, kind)
     return (0, "zzz")
-
-from .perf_logic import run_performance_from_csv, write_txt_report
 
 logger = get_task_logger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -49,6 +48,7 @@ def check_ftp_reports(directory: str | None = None) -> str:
 
     logger.info("[check_ftp_reports] Dir=%s | week=%s | month=%s | %s",
                 dir_path, bool(week_matches), bool(month_matches), msg)
+
     return msg
 
 @celery_app.task(name="app.tasks.run_performance_if_reports")
@@ -71,7 +71,9 @@ def run_performance_if_reports(directory: str | None = None) -> dict:
     # --- Primero SEMANA: procesar todos ---
     for week_csv in week_matches:
         try:
+            
             df_res, meta = run_performance_from_csv(week_csv)
+            logger.info("Station order inferido: %s", meta.get("station_order"))
             week_txt = reports_dir / (Path(week_csv).stem + "_report.txt")
             write_txt_report(str(week_txt), df_res, meta, title=f"Reporte Semanal ({Path(week_csv).name})")
             logger.info("[run_performance_if_reports] Semanal OK | in=%s | out=%s", week_csv, week_txt)

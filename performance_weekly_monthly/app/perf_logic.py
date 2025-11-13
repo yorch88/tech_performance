@@ -6,36 +6,67 @@ from collections import defaultdict
 from pathlib import Path
 from datetime import datetime
 
+# Puedes dejarlo como fallback/manual si algún día quieres forzar un orden
 DEFAULT_STATION_ORDER = {
     "fto": 1,
-    "runnin": 2,      # si tu CSV dice "runnin", respeta eso
+    "runnin": 2,
     "test4": 3,
     "disk test": 4,
-    "swap": 0,        # laboratorio, fuera del flujo
+    "swap": 0,   # laboratorio, fuera del flujo
 }
 
+
 def _normalize_frame(df: pd.DataFrame) -> pd.DataFrame:
-    # Normaliza/castea – no tiramos columnas extra si llegan
     df = df.copy()
     df["sn"] = df["sn"].astype("string")
     df["station"] = df["station"].str.strip().str.lower()
     df["status"]  = df["status"].str.strip().str.lower()
     df["badge"]   = df["badge"].astype(str)
-    # tipos compactos
+
     df["station"] = df["station"].astype("category")
     df["status"]  = df["status"].astype("category")
     df["badge"]   = df["badge"].astype("category")
     return df
 
+
+def _infer_station_order(df: pd.DataFrame) -> dict[str, int]:
+    """
+    Construye un orden lineal de estaciones a partir del flujo real del CSV.
+
+    - Recorre todas las filas en orden y agrega estaciones sin repetir.
+    - 'swap' se fuerza a rank 0 (laboratorio / fuera de flujo).
+    - El resto se numera 1..N en el orden en que aparecen.
+    """
+    seen: list[str] = []
+    has_swap = False
+
+    for st in df["station"]:
+        if st == "swap":
+            has_swap = True
+            continue
+        if st not in seen:
+            seen.append(st)
+
+    station_order: dict[str, int] = {st: i + 1 for i, st in enumerate(seen)}
+    if has_swap:
+        station_order["swap"] = 0
+    return station_order
+
+
 def compute_performance_from_df(
     df: pd.DataFrame,
-    station_order: dict[str,int] | None = None,
+    station_order: dict[str, int] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """Devuelve (df_result, meta) sin tocar disco."""
-    station_order = station_order or DEFAULT_STATION_ORDER
-    max_flow_rank = max(r for r in station_order.values() if r > 0)
-
     df = _normalize_frame(df)
+
+    # Si no pasas station_order, lo inferimos desde el CSV
+    if station_order is None:
+        station_order = _infer_station_order(df)
+
+    # Por si alguna vez station_order viene vacío/incorrecto
+    max_flow_rank = max((r for r in station_order.values() if r > 0), default=0)
+
     # Orden temporal: si no hay timestamp, usamos el orden del archivo
     if "event_id" not in df.columns:
         df = df.reset_index().rename(columns={"index": "event_id"})
@@ -52,6 +83,8 @@ def compute_performance_from_df(
             r = rows[i]
             st = r["station"]
             st_status = r["status"]
+
+            # Solo consideramos fallas en estaciones del flujo (rank > 0)
             if (st_status == "fail") and (st in station_order) and (station_order[st] > 0):
                 total_fallas += 1
                 fail_rank = station_order[st]
@@ -128,7 +161,7 @@ def compute_performance_from_df(
         inef = it - ex
         ef_pct = round(ex / it * 100, 2) if it else 0
         carga_rel = round(it / carga_esperada, 3) if carga_esperada else 0
-        score = round(ex + 0.5 * carga_rel, 3)   # puedes ajustar el peso
+        score = round(ex + 0.5 * carga_rel, 3)
         rows_out.append({
             "badge": badge,
             "intentos": it,
@@ -150,12 +183,15 @@ def compute_performance_from_df(
         "fallas_totales": total_fallas,
         "tecnicos_activos": tecnicos_activos,
         "carga_esperada": carga_esperada,
+        "station_order": station_order,  # útil para debug
     }
     return df_result, meta
+
 
 def run_performance_from_csv(csv_path: str, station_order: dict[str,int] | None = None) -> tuple[pd.DataFrame, dict]:
     df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
     return compute_performance_from_df(df, station_order=station_order)
+
 
 def write_txt_report(txt_path: str, df_result: pd.DataFrame, meta: dict, title: str):
     Path(txt_path).parent.mkdir(parents=True, exist_ok=True)
@@ -185,27 +221,22 @@ def write_txt_report(txt_path: str, df_result: pd.DataFrame, meta: dict, title: 
             f.write("\n".join(lines))
         return
 
-    # --- tabla alineada ---
     cols = ["badge","intentos","exitos","ineficiencias","eficiencia_%","carga_relativa","score"]
 
-    # preformatear números
     df_print = df_result.copy()
     df_print["eficiencia_%"]   = df_print["eficiencia_%"].apply(lambda x: fmt_float(x, 2))
     df_print["carga_relativa"] = df_print["carga_relativa"].apply(lambda x: fmt_float(x, 3))
     df_print["score"]          = df_print["score"].apply(lambda x: fmt_float(x, 3))
 
-    # tipos de alineación por columna
     right_align = {"intentos","exitos","ineficiencias","eficiencia_%","carga_relativa","score"}
     left_align  = set(cols) - right_align
 
-    # calcular ancho por columna (considerando encabezado y filas)
     widths = {}
     for c in cols:
         head_len = len(c)
         body_len = df_print[c].astype(str).map(len).max()
         widths[c] = max(head_len, body_len)
 
-    # helpers de alineación
     def align(val, col):
         s = str(val)
         w = widths[col]
@@ -213,13 +244,11 @@ def write_txt_report(txt_path: str, df_result: pd.DataFrame, meta: dict, title: 
             return s.rjust(w)
         return s.ljust(w)
 
-    # encabezado
     header = "  ".join(align(c, c) for c in cols)
     sep    = "  ".join("-" * widths[c] for c in cols)
     lines.append(header)
     lines.append(sep)
 
-    # filas
     for _, row in df_print.iterrows():
         line = "  ".join(align(row[c], c) for c in cols)
         lines.append(line)
