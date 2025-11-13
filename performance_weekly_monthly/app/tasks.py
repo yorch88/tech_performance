@@ -8,7 +8,7 @@ import os
 import glob
 import re
 
-_num_re = re.compile(r'(week|month)_(\d+)', re.IGNORECASE)
+_num_re = re.compile(r'(week|month|year)_(\d+)', re.IGNORECASE)
 
 def _period_key(path_str: str) -> tuple[int, str]:
     """
@@ -37,8 +37,9 @@ def check_ftp_reports(directory: str | None = None) -> str:
     dir_path = Path(directory or DEFAULT_DIR)
     week_matches  = glob.glob(str(dir_path / "week_*_test_report.csv"))
     month_matches = glob.glob(str(dir_path / "month_*_test_report.csv"))
+    year_matches = glob.glob(str(dir_path) / "year_*_test_report.csv")
 
-    count = int(len(week_matches) > 0) + int(len(month_matches) > 0)
+    count = int(len(week_matches) > 0) + int(len(month_matches) > 0 + int(len(year_matches) > 0))
     if count == 0:
         msg = "no encontre nada"
     elif count == 1:
@@ -46,8 +47,8 @@ def check_ftp_reports(directory: str | None = None) -> str:
     else:
         msg = "encontre 2 archivos"
 
-    logger.info("[check_ftp_reports] Dir=%s | week=%s | month=%s | %s",
-                dir_path, bool(week_matches), bool(month_matches), msg)
+    logger.info("[check_ftp_reports] Dir=%s | week=%s | month=%s | year=%s | %s",
+                dir_path, bool(week_matches), bool(month_matches), bool(year_matches), msg)
 
     return msg
 
@@ -60,12 +61,14 @@ def run_performance_if_reports(directory: str | None = None) -> dict:
     # Encontrar TODOS los archivos
     week_matches  = list(dir_path.glob("week_*_test_report.csv"))
     month_matches = list(dir_path.glob("month_*_test_report.csv"))
+    year_matches = list(dir_path.glob("year_*_test_report.csv"))
 
     # Ordenar por número de periodo (semana o mes)
     week_matches  = sorted((str(p) for p in week_matches),  key=_period_key)   # week_7,..., week_8,...
     month_matches = sorted((str(p) for p in month_matches), key=_period_key)
+    year_matches = sorted((str(p) for p in year_matches), key=_period_key)
 
-    out = {"week": [], "month": []}
+    out = {"week": [], "month": [], "year": []}
     processed_paths = []
 
     # --- Primero SEMANA: procesar todos ---
@@ -93,6 +96,17 @@ def run_performance_if_reports(directory: str | None = None) -> dict:
             processed_paths.append(month_csv)
         except Exception as e:
             logger.exception("[run_performance_if_reports] Error procesando mensual %s: %s", month_csv, e)
+    
+    for year_csv in year_matches:
+        try:
+            df_res, meta = run_performance_from_csv(year_csv)
+            year_txt = reports_dir / (Path(year_csv).stem + "_report.txt")
+            write_txt_report(str(year_txt), df_res, meta, title=f"Reporte Anual ({Path(year_csv).name})")
+            logger.info("[run_performance_if_reports] Anual OK | in=%s | out=%s", year_csv, year_txt)
+            out["year"].append(str(year_txt))
+            processed_paths.append(year_csv)
+        except Exception as e:
+            logger.exception("[run_performance_if_reports] Error procesando anual %s: %s", year_csv, e)
 
     # Borrar SOLO lo que se procesó con éxito
     for p in processed_paths:
