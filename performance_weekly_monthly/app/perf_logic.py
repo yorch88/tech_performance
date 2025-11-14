@@ -146,19 +146,23 @@ def compute_performance_from_df(
 
                     if status2 == "fail":
                         err2 = rows[k].get("error_code", "")
-                        same_code = bool(orig_error) and bool(err2) and (err2 == orig_error)
+                        same_code = (orig_error and err2 and err2 == orig_error)
+                        same_station = (st2 == st)  # 👈 MISMA estación que la falla original
 
-                        # MISMA estación (rank2 <= fail_rank) + MISMO código → mala reparación
-                        if (rank2 <= fail_rank) and same_code:
+                        # 🔴 Solo cuenta como ineficiencia si:
+                        #    - es la MISMA estación   (st2 == st)
+                        #    - y el MISMO error_code (err2 == orig_error)
+                        if same_station and same_code:
+                            # MISMA estación + MISMO error → mala reparación
                             success = False
                             max_pass_rank = -1
                             break
                         else:
-                            # Cualquier otra falla:
-                            #   - misma estación pero OTRO error_code → reparación buena, problema nuevo
-                            #   - estación más adelante → reparación buena, problema nuevo
+                            # estación diferente o error diferente:
+                            # → reparación correcta, falla nueva (otro problema)
                             success = True
                             break
+
 
                     if status2 == "pass":
                         if rank2 > max_pass_rank:

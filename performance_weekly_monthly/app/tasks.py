@@ -44,8 +44,10 @@ def check_ftp_reports(directory: str | None = None) -> str:
         msg = "no encontre nada"
     elif count == 1:
         msg = "encontre 1 archivo"
-    else:
+    elif count == 2:
         msg = "encontre 2 archivos"
+    elif count == 3:
+        msg = "encontre 3 archivos"
 
     logger.info("[check_ftp_reports] Dir=%s | week=%s | month=%s | year=%s | %s",
                 dir_path, bool(week_matches), bool(month_matches), bool(year_matches), msg)
