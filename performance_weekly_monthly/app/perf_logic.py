@@ -23,6 +23,17 @@ def _normalize_frame(df: pd.DataFrame) -> pd.DataFrame:
     df["status"]  = df["status"].str.strip().str.lower()
     df["badge"]   = df["badge"].astype(str)
 
+    # 👇 nuevo
+    if "error_code" in df.columns:
+        df["error_code"] = (
+            df["error_code"]
+            .astype("string")
+            .str.strip()
+            .str.lower()
+        )
+    else:
+        df["error_code"] = ""
+
     df["station"] = df["station"].astype("category")
     df["status"]  = df["status"].astype("category")
     df["badge"]   = df["badge"].astype("category")
@@ -57,7 +68,14 @@ def compute_performance_from_df(
     df: pd.DataFrame,
     station_order: dict[str, int] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
-    """Devuelve (df_result, meta) sin tocar disco."""
+    """Devuelve (df_result, meta) sin tocar disco.
+
+    - Si station_order es None, se infiere automáticamente del CSV.
+    - Evalúa la reparación por (station, error_code):
+        * Si después del swap vuelve a fallar MISMA estación + MISMO error_code → ineficiencia (no éxito).
+        * Si vuelve a fallar MISMA estación pero OTRO error_code → la reparación anterior fue exitosa, problema nuevo.
+        * Si falla más adelante en otra estación → reparación exitosa, problema nuevo.
+    """
     df = _normalize_frame(df)
 
     # Si no pasas station_order, lo inferimos desde el CSV
@@ -72,10 +90,11 @@ def compute_performance_from_df(
         df = df.reset_index().rename(columns={"index": "event_id"})
     df = df.sort_values(["sn", "event_id"], kind="mergesort")
 
-    intentos = defaultdict(int)
-    exitos   = defaultdict(int)
+    intentos: dict[str, int] = defaultdict(int)
+    exitos: dict[str, int] = defaultdict(int)
     total_fallas = 0
 
+    # Recorremos unidad por unidad
     for sn, g in df.groupby("sn", sort=False):
         rows = g.to_dict("records")
         i = 0
@@ -84,10 +103,11 @@ def compute_performance_from_df(
             st = r["station"]
             st_status = r["status"]
 
-            # Solo consideramos fallas en estaciones del flujo (rank > 0)
+            # fallas en estaciones del flujo (rank > 0)
             if (st_status == "fail") and (st in station_order) and (station_order[st] > 0):
                 total_fallas += 1
                 fail_rank = station_order[st]
+                orig_error = r.get("error_code", "")  # 👈 error original en esa estación
 
                 # buscar el siguiente swap
                 j = i + 1
@@ -98,6 +118,7 @@ def compute_performance_from_df(
                         break
                     j += 1
 
+                # si nunca llega a swap, no podemos atribuir a técnico
                 if swap_row is None:
                     i += 1
                     continue
@@ -107,36 +128,45 @@ def compute_performance_from_df(
                     i = j + 1
                     continue
 
+                # 1 intento para ese técnico
                 intentos[badge] += 1
 
-                # post-swap
+                # Ahora analizamos lo que pasa DESPUÉS del swap
                 success = False
                 max_pass_rank = -1
                 k = j + 1
                 while k < len(rows):
                     st2 = rows[k]["station"]
                     if st2 == "swap":
+                        # Nuevo técnico: hasta aquí llega este intento
                         break
 
                     status2 = rows[k]["status"]
                     rank2 = station_order.get(st2, -1)
 
                     if status2 == "fail":
-                        # si falla igual o antes → mala reparación
-                        if rank2 <= fail_rank:
+                        err2 = rows[k].get("error_code", "")
+                        same_code = bool(orig_error) and bool(err2) and (err2 == orig_error)
+
+                        # MISMA estación (rank2 <= fail_rank) + MISMO código → mala reparación
+                        if (rank2 <= fail_rank) and same_code:
                             success = False
                             max_pass_rank = -1
                             break
                         else:
-                            # falló más adelante → reparación buena (nuevo problema)
+                            # Cualquier otra falla:
+                            #   - misma estación pero OTRO error_code → reparación buena, problema nuevo
+                            #   - estación más adelante → reparación buena, problema nuevo
                             success = True
                             break
 
                     if status2 == "pass":
                         if rank2 > max_pass_rank:
                             max_pass_rank = rank2
+                        # Si ya pasó la estación donde falló → éxito
                         if max_pass_rank >= fail_rank:
                             success = True
+                        # Si ya llegó al final del flujo, cortamos
                         if max_pass_rank == max_flow_rank:
                             break
 
@@ -145,9 +175,11 @@ def compute_performance_from_df(
                 if success:
                     exitos[badge] += 1
 
+                # seguimos a partir del swap (nuevo intento/problema)
                 i = j + 1
                 continue
 
+            # si no entró en el caso de falla, avanzamos
             i += 1
 
     # métricas de carga
@@ -175,15 +207,18 @@ def compute_performance_from_df(
     df_result = pd.DataFrame(rows_out)
     if not df_result.empty:
         df_result = (
-            df_result.sort_values(by=["score", "exitos", "intentos"], ascending=[False, False, False])
-                     .reset_index(drop=True)
+            df_result.sort_values(
+                by=["score", "exitos", "intentos"],
+                ascending=[False, False, False],
+            )
+            .reset_index(drop=True)
         )
 
     meta = {
         "fallas_totales": total_fallas,
         "tecnicos_activos": tecnicos_activos,
         "carga_esperada": carga_esperada,
-        "station_order": station_order,  # útil para debug
+        "station_order": station_order,
     }
     return df_result, meta
 
