@@ -10,3 +10,12 @@ logs:
 
 bash:
 	docker compose exec api bash
+
+rebuild:
+	docker compose up -d --build
+
+down:
+	docker-compose down
+
+run-test:
+	docker compose exec api pytest -q

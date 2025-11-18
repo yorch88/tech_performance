@@ -8,4 +8,4 @@ python-multipart==0.0.12
 celery==5.4.0
 redis==5.0.8
 pandas==2.3.3
-
+pytest
