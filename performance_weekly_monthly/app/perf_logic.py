@@ -203,6 +203,7 @@ def _evaluate_repair_attempt(
             if rank2 > max_pass_rank:
                 max_pass_rank = rank2
 
+<<<<<<< HEAD
             # Si ya pasó la estación donde falló → éxito
             if max_pass_rank >= fail_rank:
                 success = True
@@ -212,6 +213,37 @@ def _evaluate_repair_attempt(
                 break
 
         k += 1
+=======
+                    if status2 == "fail":
+                        err2 = rows[k].get("error_code", "")
+                        same_code = (orig_error and err2 and err2 == orig_error)
+                        same_station = (st2 == st)  # 👈 MISMA estación que la falla original
+
+                        # 🔴 Solo cuenta como ineficiencia si:
+                        #    - es la MISMA estación   (st2 == st)
+                        #    - y el MISMO error_code (err2 == orig_error)
+                        if same_station and same_code:
+                            # MISMA estación + MISMO error → mala reparación
+                            success = False
+                            max_pass_rank = -1
+                            break
+                        else:
+                            # estación diferente o error diferente:
+                            # → reparación correcta, falla nueva (otro problema)
+                            success = True
+                            break
+
+
+                    if status2 == "pass":
+                        if rank2 > max_pass_rank:
+                            max_pass_rank = rank2
+                        # Si ya pasó la estación donde falló → éxito
+                        if max_pass_rank >= fail_rank:
+                            success = True
+                        # Si ya llegó al final del flujo, cortamos
+                        if max_pass_rank == max_flow_rank:
+                            break
+>>>>>>> 01eb59ca161b6fe0d5ae8dc9a505e3e3ce7e2bd7
 
     return success
 
